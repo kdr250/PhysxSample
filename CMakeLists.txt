@@ -7,6 +7,8 @@ endif()
 
 project(main VERSION 1.0)
 
+find_package(unofficial-omniverse-physx-sdk CONFIG REQUIRED)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED true)
 
@@ -20,6 +22,34 @@ add_executable(
     main
     ${SOURCES}
 )
+
+target_link_libraries(
+    main PRIVATE
+    unofficial::omniverse-physx-sdk::sdk
+)
+
+# Optional: import the defined target to copy over the GPU acceleration libraries (3rd party provided by NVIDIA)
+if(TARGET unofficial::omniverse-physx-sdk::gpu-library)
+    if(UNIX)
+        # Add rpath setting to find .so libraries on unix based systems
+        set_target_properties(main PROPERTIES
+            BUILD_WITH_INSTALL_RPATH TRUE
+            INSTALL_RPATH "$ORIGIN"
+        )
+    endif()
+    add_custom_command(TARGET main POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:unofficial::omniverse-physx-sdk::gpu-library>
+                    $<TARGET_FILE_DIR:main>)
+    if(WIN32)
+        add_custom_command(TARGET main POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        $<TARGET_FILE:unofficial::omniverse-physx-sdk::gpu-device-library>
+                        $<TARGET_FILE_DIR:main>)
+    endif()
+else()
+    message(WARNING "GPU acceleration library target not defined - GPU acceleration will NOT be available!")
+endif()
 
 add_custom_command(
     TARGET main POST_BUILD
