@@ -1,13 +1,23 @@
 cmake_minimum_required(VERSION 3.19)
 
-if (DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+if (DEFINED CMAKE_TOOLCHAIN_FILE)
+    set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE ${CMAKE_TOOLCHAIN_FILE})
+endif()
+
+if (DEFINED ENV{VCPKG_ROOT})
     cmake_path(SET VCPKG_PATH NORMALIZE $ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake)
-    set(CMAKE_TOOLCHAIN_FILE ${VCPKG_PATH} CACHE STRING "")
+    set(CMAKE_TOOLCHAIN_FILE ${VCPKG_PATH})
+else()
+    message(FATAL_ERROR "Please install vcpkg and set 'VCPKG_ROOT' environmental variable")    
 endif()
 
 project(main VERSION 1.0)
 
-find_package(unofficial-omniverse-physx-sdk CONFIG REQUIRED)
+if (EMSCRIPTEN)
+    set(VCPKG_TARGET_TRIPLET "wasm32-emscripten")
+endif()
+
+find_package(Jolt CONFIG REQUIRED)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED true)
@@ -23,35 +33,30 @@ add_executable(
     ${SOURCES}
 )
 
-target_link_libraries(
-    main PRIVATE
-    unofficial::omniverse-physx-sdk::sdk
-)
+if (EMSCRIPTEN)
 
-# Optional: import the defined target to copy over the GPU acceleration libraries (3rd party provided by NVIDIA)
-if(TARGET unofficial::omniverse-physx-sdk::gpu-library)
-    if(UNIX)
-        # Add rpath setting to find .so libraries on unix based systems
-        set_target_properties(main PROPERTIES
-            BUILD_WITH_INSTALL_RPATH TRUE
-            INSTALL_RPATH "$ORIGIN"
-        )
-    endif()
-    add_custom_command(TARGET main POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    $<TARGET_FILE:unofficial::omniverse-physx-sdk::gpu-library>
-                    $<TARGET_FILE_DIR:main>)
-    if(WIN32)
-        add_custom_command(TARGET main POST_BUILD
-                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        $<TARGET_FILE:unofficial::omniverse-physx-sdk::gpu-device-library>
-                        $<TARGET_FILE_DIR:main>)
-    endif()
+    set(USE_FLAGS "-s ALLOW_MEMORY_GROWTH=1 -s STACK_SIZE=5MB --preload-file resources/")
+    set(CMAKE_CXX_FLAGS ${USE_FLAGS})
+    set_target_properties(main PROPERTIES SUFFIX ".html")
+
+    file(COPY ${PROJECT_SOURCE_DIR}/resources DESTINATION ${CMAKE_BINARY_DIR})
+
+    target_link_libraries(
+        main PRIVATE
+        Jolt::Jolt
+    )
+
 else()
-    message(WARNING "GPU acceleration library target not defined - GPU acceleration will NOT be available!")
+
+    target_link_libraries(
+        main PRIVATE
+        Jolt::Jolt
+    )
+
+    add_custom_command(
+        TARGET main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/resources $<TARGET_FILE_DIR:main>/resources
+    )
+
 endif()
 
-add_custom_command(
-    TARGET main POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/resources $<TARGET_FILE_DIR:main>/resources
-)
